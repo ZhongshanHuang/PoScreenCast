@@ -60,9 +60,8 @@ public struct CastActionResponse {
         guard let rawData, case .getVolume = action.type else {
             throw CastError.ParserError.emptyData
         }
-        return try CastRemoteControlParser.parseVolumn(rawData)
+        return try CastRemoteControlParser.parseVolume(rawData)
     }
 
     
 }
-

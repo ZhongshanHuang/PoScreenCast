@@ -58,6 +58,7 @@ public final class CastDevice {
     public let friendlyName: String?
     public let modelName: String?
     public let deviceType: String?
+    public let urlBase: String?
     
     public let avTransport: CastDevice.Service?
     public let renderingControl: CastDevice.Service?
@@ -70,6 +71,7 @@ public final class CastDevice {
         self.friendlyName = dictionary["friendlyName"] as? String
         self.modelName = dictionary["modelName"] as? String
         self.deviceType = dictionary["deviceType"] as? String
+        self.urlBase = dictionary["URLBase"] as? String
         if let avTransport = dictionary["avTransport"] as? [String: String] {
             self.avTransport = CastDevice.Service(avTransport)
         } else {
@@ -86,30 +88,18 @@ public final class CastDevice {
     }
     
     public func controlURL(for service: CastAction.CastServiceType) -> String? {
-        guard let scheme = self.location.scheme,
-                let host = self.location.host,
-                let port = self.location.port else { return nil }
-        var urlStr = "\(scheme)://\(host):\(port)"
-        let path: String
+        let path: String?
         switch service {
         case .avTransport:
-            guard let controlURL = avTransport?.controlURL else { return nil }
-            path = controlURL
+            path = avTransport?.controlURL
         case .renderingControl:
-            guard let controlURL = renderingControl?.controlURL else { return nil }
-            path = controlURL
+            path = renderingControl?.controlURL
         }
-        urlStr += path.hasPrefix("/") ? path : "/\(path)"
-        return urlStr
+        return resolvedURL(path)?.absoluteString
     }
     
     private func fetchSCPD(_ path: String) {
-        guard let scheme = self.location.scheme,
-                let host = self.location.host,
-                let port = self.location.port else { return }
-        var urlStr = "\(scheme)://\(host):\(port)"
-        urlStr += path.hasPrefix("/") ? path : "/\(path)"
-        guard let url = URL(string: urlStr) else { return }
+        guard let url = resolvedURL(path) else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -133,6 +123,28 @@ public final class CastDevice {
             }
         }
         task.resume()
+    }
+
+    private func resolvedURL(_ path: String?) -> URL? {
+        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+
+        if let url = URL(string: path), url.scheme != nil {
+            return url
+        }
+
+        let baseURL: URL
+        if let urlBase = urlBase?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !urlBase.isEmpty,
+           let url = URL(string: urlBase) {
+            baseURL = urlBase.hasSuffix("/") ? url : url.appendingPathComponent("")
+        } else {
+            baseURL = location
+        }
+
+        return URL(string: path, relativeTo: baseURL)?.absoluteURL
     }
     
 }

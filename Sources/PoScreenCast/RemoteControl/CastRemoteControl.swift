@@ -28,8 +28,8 @@ public final class CastRemoteControl {
     }
     
     /// 设置播放媒体资源，设置成功后默认调用play播放
-    public func setAVTransportURI(_ uri: String, videoName: String) {
-        send(CastAction(type: .setAVTransportURI(uri: uri, videoName: videoName)))
+    public func setAVTransportURI(_ uri: String, videoName: String, autoPlay: Bool = true) {
+        send(CastAction(type: .setAVTransportURI(uri: uri, videoName: videoName)), autoPlayAfterSuccess: autoPlay)
     }
     
     /// 播放
@@ -80,17 +80,24 @@ public final class CastRemoteControl {
         if timer != nil {
             timer?.invalidate()
         }
+        let shouldFetchPositionInfo = positionInfoInterval > 0
+        let shouldFetchTransportInfo = transportInfoInterval > 0
+        let shouldFetchVolume = volumeInterval > 0
+        guard shouldFetchPositionInfo || shouldFetchTransportInfo || shouldFetchVolume else {
+            timer = nil
+            return
+        }
         timerInterval = 0
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true, block: { [weak self] t in
             guard let self else { t.invalidate(); return }
             self.timerInterval += 1
-            if timerInterval % positionInfoInterval == 0 {
+            if shouldFetchPositionInfo, timerInterval % positionInfoInterval == 0 {
                 self.getPositionInfo()
             }
-            if timerInterval % transportInfoInterval == 0 {
+            if shouldFetchTransportInfo, timerInterval % transportInfoInterval == 0 {
                 self.getTransportInfo()
             }
-            if timerInterval % volumeInterval == 0 {
+            if shouldFetchVolume, timerInterval % volumeInterval == 0 {
                 self.getVolume()
             }
         })
@@ -104,8 +111,15 @@ public final class CastRemoteControl {
     
     // MARK: - Help
     
-    private func send(_ action: CastAction) {
-        guard let urlStr = device.controlURL(for: action.serviceType), let url = URL(string: urlStr) else { return }
+    private func send(_ action: CastAction, autoPlayAfterSuccess: Bool = false) {
+        guard let urlStr = device.controlURL(for: action.serviceType) else {
+            notify(action, response: CastActionResponse(action: action, rawData: nil, failure: .missingControlURL(action.serviceType)))
+            return
+        }
+        guard let url = URL(string: urlStr) else {
+            notify(action, response: CastActionResponse(action: action, rawData: nil, failure: .failedBeforeSend("Invalid controlURL: \(urlStr)")))
+            return
+        }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -119,21 +133,31 @@ public final class CastRemoteControl {
             let actionResponse: CastActionResponse
             if let error {
                 actionResponse = CastActionResponse(action: action, rawData: data, failure: .failedBeforeSend(error.localizedDescription))
-            } else {
-                let httpResponse = response as! HTTPURLResponse
-                if (httpResponse.statusCode == 200) {
+            } else if let httpResponse = response as? HTTPURLResponse {
+                if 200..<300 ~= httpResponse.statusCode {
                     actionResponse = CastActionResponse(action: action, rawData: data, failure: nil)
                 } else if let data, let serverFault = try? CastRemoteControlParser.parseServerFault(data) {
                     actionResponse = CastActionResponse(action: action, rawData: data, failure: .serverFault(serverFault))
                 } else {
                     actionResponse = CastActionResponse(action: action, rawData: data, failure: .failedBeforeSend("statusCode: \(httpResponse.statusCode), msg: \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))"))
                 }
+            } else {
+                actionResponse = CastActionResponse(action: action, rawData: data, failure: .invalidResponse)
             }
             DispatchQueue.main.async {
                 self.delegate?.remoteControl(self, sendAction: action, response: actionResponse)
+                if autoPlayAfterSuccess, actionResponse.failure == nil {
+                    self.play()
+                }
             }
         }
         task.resume()
+    }
+
+    private func notify(_ action: CastAction, response: CastActionResponse) {
+        DispatchQueue.main.async {
+            self.delegate?.remoteControl(self, sendAction: action, response: response)
+        }
     }
     
 }

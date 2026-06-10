@@ -93,8 +93,7 @@ public struct CastAction {
         switch type {
         case let .setAVTransportURI(uri, videoName):
             xmlEle.addChild(name: "CurrentURI", value: uri)
-            let metadata = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\"><item id=\"123\" parentID=\"-1\" restricted=\"1\"><upnp:storageMedium>UNKNOWN</upnp:storageMedium><upnp:writeStatus>UNKNOWN</upnp:writeStatus><dc:title>\(videoName)</dc:title><dc:creator>mgtv</dc:creator><upnp:class>object.item.videoItem</upnp:class><res protocolInfo=\"http-get:*:video/mp4:*;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000\">\(uri.xmlEscaped)</res><upnp:class>object.item.videoItem</upnp:class></item></DIDL-Lite>"
-            xmlEle.addChild(name: "CurrentURIMetaData", value: metadata)
+            xmlEle.addChild(name: "CurrentURIMetaData", value: CastAction.currentURIMetaData(uri: uri, videoName: videoName))
         case .play:
             xmlEle.addChild(name: "Speed", value: "1")
         case .seek(let position):
@@ -110,6 +109,38 @@ public struct CastAction {
         }
         
         bodyEle.addChild(xmlEle)
+    }
+
+    private static func currentURIMetaData(uri: String, videoName: String) -> String {
+        let title = videoName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Video" : videoName
+        let mimeType = mimeType(for: uri)
+        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\"><item id=\"0\" parentID=\"-1\" restricted=\"1\"><dc:title>\(title.xmlEscaped)</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo=\"http-get:*:\(mimeType):DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000\">\(uri.xmlEscaped)</res></item></DIDL-Lite>"
+    }
+
+    private static func mimeType(for uri: String) -> String {
+        guard let pathExtension = URL(string: uri)?.pathExtension.lowercased(), !pathExtension.isEmpty else {
+            return "*"
+        }
+        switch pathExtension {
+        case "mp4", "m4v":
+            return "video/mp4"
+        case "mov":
+            return "video/quicktime"
+        case "m3u8":
+            return "application/vnd.apple.mpegurl"
+        case "ts":
+            return "video/mp2t"
+        case "mkv":
+            return "video/x-matroska"
+        case "avi":
+            return "video/x-msvideo"
+        case "mpeg", "mpg":
+            return "video/mpeg"
+        case "webm":
+            return "video/webm"
+        default:
+            return "*"
+        }
     }
     
 }
